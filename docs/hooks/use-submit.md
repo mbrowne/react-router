@@ -150,7 +150,24 @@ submit(null, {
 <Form action="/logout" method="post" />;
 ```
 
-Because submissions are navigations, the options may also contain the other navigation related props from [`<Form>`][form] such as `replace`, `state`, `preventScrollReset`, `relative`, etc.
+<docs-info>Please see the [Splat Paths][relativesplatpath] section on the `useResolvedPath` docs for a note on the behavior of the `future.v7_relativeSplatPath` future flag for relative `useSubmit()` `action` behavior within splat routes</docs-info>
+
+Because submissions are navigations, the options may also contain the other navigation related props from [`<Form>`][form] such as:
+
+- `fetcherKey`
+- `navigate`
+- `preventScrollReset`
+- `relative`
+- `replace`
+- `state`
+- `viewTransition`
+
+### `options.flushSync`
+
+The `flushSync` option tells React Router DOM to wrap the initial state update for this submission in a [`ReactDOM.flushSync`][flush-sync] call instead of the default [`React.startTransition`][start-transition]. This allows you to perform synchronous DOM actions immediately after the update is flushed to the DOM.
 
 [pickingarouter]: ../routers/picking-a-router
-[form]: ../components/form.md
+[form]: ../components/form
+[flush-sync]: https://react.dev/reference/react-dom/flushSync
+[start-transition]: https://react.dev/reference/react/startTransition
+[relativesplatpath]: ../hooks/use-resolved-path#splat-paths

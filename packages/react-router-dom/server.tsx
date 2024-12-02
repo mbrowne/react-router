@@ -7,6 +7,7 @@ import type {
   CreateStaticHandlerOptions as RouterCreateStaticHandlerOptions,
   UNSAFE_RouteManifest as RouteManifest,
   RouterState,
+  FutureConfig as RouterFutureConfig,
 } from "@remix-run/router";
 import {
   IDLE_BLOCKER,
@@ -24,6 +25,7 @@ import {
 } from "react-router";
 import type {
   DataRouteObject,
+  FutureConfig,
   Location,
   RouteObject,
   To,
@@ -34,22 +36,26 @@ import {
   Router,
   UNSAFE_DataRouterContext as DataRouterContext,
   UNSAFE_DataRouterStateContext as DataRouterStateContext,
+  UNSAFE_FetchersContext as FetchersContext,
+  UNSAFE_ViewTransitionContext as ViewTransitionContext,
 } from "react-router-dom";
 
 export interface StaticRouterProps {
   basename?: string;
   children?: React.ReactNode;
   location: Partial<Location> | string;
+  future?: Partial<FutureConfig>;
 }
 
 /**
- * A <Router> that may not navigate to any other location. This is useful
+ * A `<Router>` that may not navigate to any other location. This is useful
  * on the server where there is no stateful UI.
  */
 export function StaticRouter({
   basename,
   children,
   location: locationProp = "/",
+  future,
 }: StaticRouterProps) {
   if (typeof locationProp === "string") {
     locationProp = parsePath(locationProp);
@@ -60,7 +66,7 @@ export function StaticRouter({
     pathname: locationProp.pathname || "/",
     search: locationProp.search || "",
     hash: locationProp.hash || "",
-    state: locationProp.state || null,
+    state: locationProp.state != null ? locationProp.state : null,
     key: locationProp.key || "default",
   };
 
@@ -72,6 +78,7 @@ export function StaticRouter({
       location={location}
       navigationType={action}
       navigator={staticNavigator}
+      future={future}
       static={true}
     />
   );
@@ -109,6 +116,8 @@ export function StaticRouterProvider({
     basename: context.basename || "/",
   };
 
+  let fetchersContext = new Map();
+
   let hydrateScript = "";
 
   if (hydrate !== false) {
@@ -131,15 +140,26 @@ export function StaticRouterProvider({
     <>
       <DataRouterContext.Provider value={dataRouterContext}>
         <DataRouterStateContext.Provider value={state}>
-          <Router
-            basename={dataRouterContext.basename}
-            location={state.location}
-            navigationType={state.historyAction}
-            navigator={dataRouterContext.navigator}
-            static={dataRouterContext.static}
-          >
-            <DataRoutes routes={router.routes} state={state} />
-          </Router>
+          <FetchersContext.Provider value={fetchersContext}>
+            <ViewTransitionContext.Provider value={{ isTransitioning: false }}>
+              <Router
+                basename={dataRouterContext.basename}
+                location={state.location}
+                navigationType={state.historyAction}
+                navigator={dataRouterContext.navigator}
+                static={dataRouterContext.static}
+                future={{
+                  v7_relativeSplatPath: router.future.v7_relativeSplatPath,
+                }}
+              >
+                <DataRoutes
+                  routes={router.routes}
+                  future={router.future}
+                  state={state}
+                />
+              </Router>
+            </ViewTransitionContext.Provider>
+          </FetchersContext.Provider>
         </DataRouterStateContext.Provider>
       </DataRouterContext.Provider>
       {hydrateScript ? (
@@ -155,12 +175,14 @@ export function StaticRouterProvider({
 
 function DataRoutes({
   routes,
+  future,
   state,
 }: {
   routes: DataRouteObject[];
+  future: RemixRouter["future"];
   state: RouterState;
 }): React.ReactElement | null {
-  return useRoutesImpl(routes, undefined, state);
+  return useRoutesImpl(routes, undefined, state, future);
 }
 
 function serializeErrors(
@@ -252,7 +274,13 @@ export function createStaticHandler(
 
 export function createStaticRouter(
   routes: RouteObject[],
-  context: StaticHandlerContext
+  context: StaticHandlerContext,
+  opts: {
+    // Only accept future flags that impact the server render
+    future?: Partial<
+      Pick<RouterFutureConfig, "v7_partialHydration" | "v7_relativeSplatPath">
+    >;
+  } = {}
 ): RemixRouter {
   let manifest: RouteManifest = {};
   let dataRoutes = convertRoutesToDataRoutes(
@@ -280,6 +308,16 @@ export function createStaticRouter(
     get basename() {
       return context.basename;
     },
+    get future() {
+      return {
+        v7_fetcherPersist: false,
+        v7_normalizeFormMethod: false,
+        v7_partialHydration: opts.future?.v7_partialHydration === true,
+        v7_prependBasename: false,
+        v7_relativeSplatPath: opts.future?.v7_relativeSplatPath === true,
+        v7_skipActionErrorRevalidation: false,
+      };
+    },
     get state() {
       return {
         historyAction: Action.Pop,
@@ -299,6 +337,9 @@ export function createStaticRouter(
     },
     get routes() {
       return dataRoutes;
+    },
+    get window() {
+      return undefined;
     },
     initialize() {
       throw msg("initialize");
@@ -335,6 +376,9 @@ export function createStaticRouter(
     deleteBlocker() {
       throw msg("deleteBlocker");
     },
+    patchRoutes() {
+      throw msg("patchRoutes");
+    },
     _internalFetchControllers: new Map(),
     _internalActiveDeferreds: new Map(),
     _internalSetRoutes() {
@@ -348,14 +392,22 @@ function createHref(to: To) {
 }
 
 function encodeLocation(to: To): Path {
-  // Locations should already be encoded on the server, so just return as-is
-  let path = typeof to === "string" ? parsePath(to) : to;
+  let href = typeof to === "string" ? to : createPath(to);
+  // Treating this as a full URL will strip any trailing spaces so we need to
+  // pre-encode them since they might be part of a matching splat param from
+  // an ancestor route
+  href = href.replace(/ $/, "%20");
+  let encoded = ABSOLUTE_URL_REGEX.test(href)
+    ? new URL(href)
+    : new URL(href, "http://localhost");
   return {
-    pathname: path.pathname || "",
-    search: path.search || "",
-    hash: path.hash || "",
+    pathname: encoded.pathname,
+    search: encoded.search,
+    hash: encoded.hash,
   };
 }
+
+const ABSOLUTE_URL_REGEX = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
 
 // This utility is based on https://github.com/zertosh/htmlescape
 // License: https://github.com/zertosh/htmlescape/blob/0527ca7156a524d256101bb310a9f970f63078ad/LICENSE

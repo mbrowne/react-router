@@ -109,6 +109,8 @@ The following APIs are introduced in React Router 6.4 and will only work when us
 - [`useRouteError`][userouteerror]
 - [`useRouteLoaderData`][userouteloaderdata]
 - [`useSubmit`][usesubmit]
+- [`useBlocker`][useblocker]
+- `startViewTransition` support on [Link][viewtransition-link] and [useNavigate][viewtransition-navigate]
 
 [createbrowserrouter]: ./create-browser-router
 [createhashrouter]: ./create-hash-router
@@ -133,6 +135,7 @@ The following APIs are introduced in React Router 6.4 and will only work when us
 [useactiondata]: ../hooks/use-action-data
 [useasyncerror]: ../hooks/use-async-error
 [useasyncvalue]: ../hooks/use-async-value
+[useblocker]: ../hooks/use-blocker
 [usefetcher]: ../hooks/use-fetcher
 [usefetchers]: ../hooks/use-fetchers
 [useloaderdata]: ../hooks/use-loader-data
@@ -142,3 +145,6 @@ The following APIs are introduced in React Router 6.4 and will only work when us
 [userouteerror]: ../hooks/use-route-error
 [userouteloaderdata]: ../hooks/use-route-loader-data
 [usesubmit]: ../hooks/use-submit
+[useblocker]: ../hooks/use-blocker
+[viewtransition-link]: ../components/link#viewtransition
+[viewtransition-navigate]: ../hooks/use-navigate#optionsviewtransition

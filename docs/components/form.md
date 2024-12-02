@@ -5,6 +5,34 @@ new: true
 
 # `<Form>`
 
+<details>
+  <summary>Type declaration</summary>
+
+```tsx
+declare function Form(props: FormProps): React.ReactElement;
+
+interface FormProps
+  extends React.FormHTMLAttributes<HTMLFormElement> {
+  method?: "get" | "post" | "put" | "patch" | "delete";
+  encType?:
+    | "application/x-www-form-urlencoded"
+    | "multipart/form-data"
+    | "text/plain";
+  action?: string;
+  onSubmit?: React.FormEventHandler<HTMLFormElement>;
+  fetcherKey?: string;
+  navigate?: boolean;
+  preventScrollReset?: boolean;
+  relative?: "route" | "path";
+  reloadDocument?: boolean;
+  replace?: boolean;
+  state?: any;
+  viewTransition?: boolean;
+}
+```
+
+</details>
+
 The Form component is a wrapper around a plain HTML [form][htmlform] that emulates the browser for client side routing and data mutations. It is _not_ a form validation/state management library like you might be used to in the React ecosystem (for that, we recommend the browser's built in [HTML Form Validation][formvalidation] and data validation on your backend server).
 
 <docs-warning>This feature only works if using a data router, see [Picking a Router][pickingarouter]</docs-warning>
@@ -64,7 +92,7 @@ function ProjectsPage() {
 </DataBrowserRouter>;
 ```
 
-If the the current URL is `"/projects/123"`, the form inside the child
+If the current URL is `"/projects/123"`, the form inside the child
 route, `ProjectsPage`, will have a default action as you might expect: `"/projects/123"`. In this case, where the route is the deepest matching route, both `<Form>` and plain HTML forms have the same result.
 
 But the form inside of `ProjectsLayout` will point to `"/projects"`, not the full URL. In other words, it points to the matching segment of the URL for the route in which the form is rendered.
@@ -80,6 +108,8 @@ If you need to post to a different route, then add an action prop:
 **See also:**
 
 - [Index Search Param][indexsearchparam] (index vs parent route disambiguation)
+
+<docs-info>Please see the [Splat Paths][relativesplatpath] section on the `useResolvedPath` docs for a note on the behavior of the `future.v7_relativeSplatPath` future flag for relative `useNavigate()` behavior within splat routes</docs-info>
 
 ## `method`
 
@@ -171,6 +201,14 @@ function Project() {
 
 As you can see, both forms submit to the same route but you can use the `request.method` to branch on what you intend to do. After the actions completes, the `loader` will be revalidated and the UI will automatically synchronize with the new data.
 
+## `navigate`
+
+You can tell the form to skip the navigation and use a [fetcher][usefetcher] internally by specifying `<Form navigate={false}>`. This is essentially a shorthand for `useFetcher()` + `<fetcher.Form>` where you don't care about the resulting data and only want to kick off a submission and access the pending state via [`useFetchers()`][usefetchers].
+
+## `fetcherKey`
+
+When using a non-navigating `Form`, you may also optionally specify your own fetcher key to use via `<Form navigate={false} fetcherKey="my-key">`.
+
 ## `replace`
 
 Instructs the form to replace the current entry in the history stack, instead of pushing the new entry.
@@ -242,6 +280,10 @@ If you are using [`<ScrollRestoration>`][scrollrestoration], this lets you preve
 ```
 
 See also: [`<Link preventScrollReset>`][link-preventscrollreset]
+
+## `viewTransition`
+
+The `viewTransition` prop enables a [View Transition][view-transitions] for this navigation by wrapping the final state update in `document.startViewTransition()`. If you need to apply specific styles for this view transition, you will also need to leverage the [`useViewTransitionState()`][use-view-transition-state].
 
 # Examples
 
@@ -335,6 +377,7 @@ You can access those values from the `request.url`
 [useactiondata]: ../hooks/use-action-data
 [formdata]: https://developer.mozilla.org/en-US/docs/Web/API/FormData
 [usefetcher]: ../hooks/use-fetcher
+[usefetchers]: ../hooks/use-fetchers
 [htmlform]: https://developer.mozilla.org/en-US/docs/Web/HTML/Element/form
 [htmlformaction]: https://developer.mozilla.org/en-US/docs/Web/HTML/Element/form#attr-action
 [htmlform-method]: https://developer.mozilla.org/en-US/docs/Web/HTML/Element/form#attr-method
@@ -349,3 +392,6 @@ You can access those values from the `request.url`
 [scrollrestoration]: ./scroll-restoration
 [link-preventscrollreset]: ./link#preventscrollreset
 [history-state]: https://developer.mozilla.org/en-US/docs/Web/API/History/state
+[use-view-transition-state]: ../hooks//use-view-transition-state
+[view-transitions]: https://developer.mozilla.org/en-US/docs/Web/API/View_Transitions_API
+[relativesplatpath]: ../hooks/use-resolved-path#splat-paths

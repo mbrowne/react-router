@@ -106,6 +106,26 @@ describe("NavLink", () => {
       expect(anchor.props.className).toMatch("active");
     });
 
+    it("when the current URL has a trailing slash", () => {
+      let renderer: TestRenderer.ReactTestRenderer;
+      TestRenderer.act(() => {
+        renderer = TestRenderer.create(
+          <MemoryRouter initialEntries={["/home/"]}>
+            <Routes>
+              <Route
+                path="/home"
+                element={<NavLink to="/home/">Home</NavLink>}
+              />
+            </Routes>
+          </MemoryRouter>
+        );
+      });
+
+      let anchor = renderer.root.findByType("a");
+
+      expect(anchor.props.className).toMatch("active");
+    });
+
     it("applies its className correctly when provided as a function", () => {
       let renderer: TestRenderer.ReactTestRenderer;
       TestRenderer.act(() => {
@@ -317,6 +337,42 @@ describe("NavLink", () => {
       expect(anchors.map((a) => a.props.className)).toEqual(["active", ""]);
     });
 
+    it("matches the root route with or without the end prop", () => {
+      let renderer: TestRenderer.ReactTestRenderer;
+      TestRenderer.act(() => {
+        renderer = TestRenderer.create(
+          <MemoryRouter>
+            <Routes>
+              <Route index element={<NavLink to="/">Root</NavLink>} />
+            </Routes>
+          </MemoryRouter>
+        );
+      });
+
+      let anchor = renderer.root.findByType("a");
+      expect(anchor.props.className).toMatch("active");
+
+      TestRenderer.act(() => {
+        renderer = TestRenderer.create(
+          <MemoryRouter>
+            <Routes>
+              <Route
+                index
+                element={
+                  <NavLink to="/" end>
+                    Root
+                  </NavLink>
+                }
+              />
+            </Routes>
+          </MemoryRouter>
+        );
+      });
+
+      anchor = renderer.root.findByType("a");
+      expect(anchor.props.className).toMatch("active");
+    });
+
     it("does not automatically apply to root non-layout segments", () => {
       let renderer: TestRenderer.ReactTestRenderer;
       TestRenderer.act(() => {
@@ -397,6 +453,32 @@ describe("NavLink", () => {
       expect(anchor.props.className).toMatch("active");
     });
 
+    it("In case of trailing slash at the end of link", () => {
+      let renderer: TestRenderer.ReactTestRenderer;
+      TestRenderer.act(() => {
+        renderer = TestRenderer.create(
+          <MemoryRouter initialEntries={["/home/child"]}>
+            <Routes>
+              <Route
+                path="home"
+                element={
+                  <div>
+                    <NavLink to="/home/">Home</NavLink>
+                    <Outlet />
+                  </div>
+                }
+              >
+                <Route path="child" element={<div>Child</div>} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        );
+      });
+
+      let anchor = renderer.root.findByType("a");
+      expect(anchor.props.className).toMatch("active");
+    });
+
     describe("when end=true", () => {
       it("does not apply the default 'active' className to the underlying <a>", () => {
         let renderer: TestRenderer.ReactTestRenderer;
@@ -425,6 +507,68 @@ describe("NavLink", () => {
         let anchor = renderer.root.findByType("a");
 
         expect(anchor.props.className).not.toMatch("active");
+      });
+
+      it("Handles trailing slashes accordingly when the URL does not have a trailing slash", () => {
+        let renderer: TestRenderer.ReactTestRenderer;
+        TestRenderer.act(() => {
+          renderer = TestRenderer.create(
+            <MemoryRouter initialEntries={["/home"]}>
+              <Routes>
+                <Route
+                  path="home"
+                  element={
+                    <div>
+                      <NavLink to="/home" end>
+                        Home
+                      </NavLink>
+                      <NavLink to="/home/" end>
+                        Home
+                      </NavLink>
+                      <Outlet />
+                    </div>
+                  }
+                >
+                  <Route path="child" element={<div>Child</div>} />
+                </Route>
+              </Routes>
+            </MemoryRouter>
+          );
+        });
+
+        let anchors = renderer.root.findAllByType("a");
+        expect(anchors.map((a) => a.props.className)).toEqual(["active", ""]);
+      });
+
+      it("Handles trailing slashes accordingly when the URL has a trailing slash", () => {
+        let renderer: TestRenderer.ReactTestRenderer;
+        TestRenderer.act(() => {
+          renderer = TestRenderer.create(
+            <MemoryRouter initialEntries={["/home/"]}>
+              <Routes>
+                <Route
+                  path="home"
+                  element={
+                    <div>
+                      <NavLink to="/home" end>
+                        Home
+                      </NavLink>
+                      <NavLink to="/home/" end>
+                        Home
+                      </NavLink>
+                      <Outlet />
+                    </div>
+                  }
+                >
+                  <Route path="child" element={<div>Child</div>} />
+                </Route>
+              </Routes>
+            </MemoryRouter>
+          );
+        });
+
+        let anchors = renderer.root.findAllByType("a");
+        expect(anchors.map((a) => a.props.className)).toEqual(["", "active"]);
       });
     });
   });
@@ -797,6 +941,46 @@ describe("NavLink using a data router", () => {
     await waitFor(() => screen.getByText("Baz page"));
     expect(screen.getByText("Link to Bar").className).toBe("");
     expect(screen.getByText("Link to Baz").className).toBe("active");
+  });
+
+  it("applies the default 'active'/'pending' classNames when a basename is used", async () => {
+    let dfd = createDeferred();
+    let router = createBrowserRouter(
+      createRoutesFromElements(
+        <Route path="/" element={<Layout />}>
+          <Route path="foo" element={<p>Foo page</p>} />
+          <Route
+            path="bar"
+            loader={() => dfd.promise}
+            element={<p>Bar page</p>}
+          />
+        </Route>
+      ),
+      {
+        window: getWindow("/base/foo"),
+        basename: "/base",
+      }
+    );
+    render(<RouterProvider router={router} />);
+
+    function Layout() {
+      return (
+        <>
+          <NavLink to="/foo">Link to Foo</NavLink>
+          <NavLink to="/bar">Link to Bar</NavLink>
+          <Outlet />
+        </>
+      );
+    }
+
+    expect(screen.getByText("Link to Bar").className).toBe("");
+
+    fireEvent.click(screen.getByText("Link to Bar"));
+    expect(screen.getByText("Link to Bar").className).toBe("pending");
+
+    dfd.resolve(null);
+    await waitFor(() => screen.getByText("Bar page"));
+    expect(screen.getByText("Link to Bar").className).toBe("active");
   });
 });
 

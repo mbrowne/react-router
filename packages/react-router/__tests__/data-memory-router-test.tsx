@@ -1,22 +1,20 @@
-import * as React from "react";
-import {
-  render,
-  fireEvent,
-  waitFor,
-  screen,
-  prettyDOM,
-  queryByText,
-} from "@testing-library/react";
+import type { ErrorResponse } from "@remix-run/router";
 import "@testing-library/jest-dom";
-import type { ErrorResponse, FormMethod } from "@remix-run/router";
-import { joinPaths } from "@remix-run/router";
+import {
+  fireEvent,
+  queryByText,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import * as React from "react";
 import {
   Await,
   MemoryRouter,
-  Route,
-  Routes,
-  RouterProvider,
   Outlet,
+  Route,
+  RouterProvider,
+  Routes,
   createMemoryRouter,
   createRoutesFromElements,
   defer,
@@ -27,12 +25,15 @@ import {
   useLoaderData,
   useLocation,
   useMatches,
-  useRouteLoaderData,
-  useRouteError,
   useNavigation,
-  useRevalidator,
-  UNSAFE_DataRouterContext as DataRouterContext,
+  useRouteError,
+  useRouteLoaderData,
 } from "react-router";
+
+import urlDataStrategy from "../../router/__tests__/utils/urlDataStrategy";
+import { createDeferred } from "../../router/__tests__/utils/utils";
+import MemoryNavigate from "./utils/MemoryNavigate";
+import getHtml from "./utils/getHtml";
 
 describe("createMemoryRouter", () => {
   let consoleWarn: jest.SpyInstance;
@@ -295,7 +296,6 @@ describe("createMemoryRouter", () => {
       "<div>
         <div>
           parent data
-          child action
           idle
           <div>
             child data
@@ -907,107 +907,6 @@ describe("createMemoryRouter", () => {
       bar: undefined,
       child: "CHILD",
     });
-  });
-
-  it("reloads data using useRevalidator", async () => {
-    let count = 1;
-    let router = createMemoryRouter(
-      createRoutesFromElements(
-        <Route path="/" element={<Layout />}>
-          <Route
-            path="foo"
-            loader={async () => `count=${++count}`}
-            element={<Foo />}
-          />
-        </Route>
-      ),
-      {
-        initialEntries: ["/foo"],
-        hydrationData: {
-          loaderData: {
-            "0-0": "count=1",
-          },
-        },
-      }
-    );
-    let { container } = render(<RouterProvider router={router} />);
-
-    function Layout() {
-      let navigation = useNavigation();
-      let { revalidate, state } = useRevalidator();
-      return (
-        <div>
-          <button onClick={() => revalidate()}>Revalidate</button>
-          <p>{navigation.state}</p>
-          <p>{state}</p>
-          <Outlet />
-        </div>
-      );
-    }
-
-    function Foo() {
-      let data = useLoaderData() as string;
-      return <p>{data}</p>;
-    }
-
-    expect(getHtml(container)).toMatchInlineSnapshot(`
-      "<div>
-        <div>
-          <button>
-            Revalidate
-          </button>
-          <p>
-            idle
-          </p>
-          <p>
-            idle
-          </p>
-          <p>
-            count=1
-          </p>
-        </div>
-      </div>"
-    `);
-
-    fireEvent.click(screen.getByText("Revalidate"));
-    expect(getHtml(container)).toMatchInlineSnapshot(`
-      "<div>
-        <div>
-          <button>
-            Revalidate
-          </button>
-          <p>
-            idle
-          </p>
-          <p>
-            loading
-          </p>
-          <p>
-            count=1
-          </p>
-        </div>
-      </div>"
-    `);
-
-    await waitFor(() => screen.getByText("count=2"));
-    expect(getHtml(container)).toMatchInlineSnapshot(`
-      "<div>
-        <div>
-          <button>
-            Revalidate
-          </button>
-          <p>
-            idle
-          </p>
-          <p>
-            idle
-          </p>
-          <p>
-            count=2
-          </p>
-        </div>
-      </div>"
-    `);
   });
 
   it("renders descendent routes inside a data router", () => {
@@ -2116,6 +2015,51 @@ describe("createMemoryRouter", () => {
       }
     });
 
+    it("handles a `null` render-error", async () => {
+      let router = createMemoryRouter([
+        {
+          path: "/",
+          Component() {
+            // eslint-disable-next-line no-throw-literal
+            throw null;
+          },
+          ErrorBoundary() {
+            return <pre>{useRouteError() === null ? "Yes" : "No"}</pre>;
+          },
+        },
+      ]);
+      let { container } = render(<RouterProvider router={router} />);
+
+      await waitFor(() => screen.getByText("Yes"));
+      expect(getHtml(container)).toMatch("Yes");
+    });
+
+    it("handles a `null` render-error from a defer() call", async () => {
+      let router = createMemoryRouter([
+        {
+          path: "/",
+          loader() {
+            return defer({ lazy: Promise.reject(null) });
+          },
+          Component() {
+            let data = useLoaderData() as { lazy: Promise<unknown> };
+            return (
+              <React.Suspense>
+                <Await resolve={data.lazy}>No</Await>
+              </React.Suspense>
+            );
+          },
+          ErrorBoundary() {
+            return <pre>{useRouteError() === null ? "Yes" : "No"}</pre>;
+          },
+        },
+      ]);
+      let { container } = render(<RouterProvider router={router} />);
+
+      await waitFor(() => screen.getByText("Yes"));
+      expect(getHtml(container)).toMatch("Yes");
+    });
+
     it("handles back button routing away from a child error boundary", async () => {
       let router = createMemoryRouter(
         createRoutesFromElements(
@@ -2431,120 +2375,6 @@ describe("createMemoryRouter", () => {
         "You cannot `useLoaderData` in an errorElement (routeId: 0)"
       );
       errorSpy.mockRestore();
-    });
-
-    it("allows a successful useRevalidator to resolve the error boundary (loader + child boundary)", async () => {
-      let shouldFail = true;
-      let router = createMemoryRouter(
-        createRoutesFromElements(
-          <Route
-            path="/"
-            Component={() => (
-              <>
-                <MemoryNavigate to="child">/child</MemoryNavigate>
-                <Outlet />
-              </>
-            )}
-          >
-            <Route
-              path="child"
-              loader={() => {
-                if (shouldFail) {
-                  shouldFail = false;
-                  throw new Error("Broken");
-                } else {
-                  return "Fixed";
-                }
-              }}
-              Component={() => <p>{("Child:" + useLoaderData()) as string}</p>}
-              ErrorBoundary={() => {
-                let { revalidate } = useRevalidator();
-                return (
-                  <>
-                    <p>{"Error:" + (useRouteError() as Error).message}</p>
-                    <button onClick={() => revalidate()}>Try again</button>
-                  </>
-                );
-              }}
-            />
-          </Route>
-        )
-      );
-
-      let { container } = render(
-        <div>
-          <RouterProvider router={router} />
-        </div>
-      );
-
-      fireEvent.click(screen.getByText("/child"));
-      await waitFor(() => screen.getByText("Error:Broken"));
-      expect(getHtml(container)).toMatch("Error:Broken");
-      expect(router.state.errors).not.toBe(null);
-
-      fireEvent.click(screen.getByText("Try again"));
-      await waitFor(() => {
-        expect(queryByText(container, "Child:Fixed")).toBeInTheDocument();
-      });
-      expect(getHtml(container)).toMatch("Child:Fixed");
-      expect(router.state.errors).toBe(null);
-    });
-
-    it("allows a successful useRevalidator to resolve the error boundary (loader + parent boundary)", async () => {
-      let shouldFail = true;
-      let router = createMemoryRouter(
-        createRoutesFromElements(
-          <Route
-            path="/"
-            Component={() => (
-              <>
-                <MemoryNavigate to="child">/child</MemoryNavigate>
-                <Outlet />
-              </>
-            )}
-            ErrorBoundary={() => {
-              let { revalidate } = useRevalidator();
-              return (
-                <>
-                  <p>{"Error:" + (useRouteError() as Error).message}</p>
-                  <button onClick={() => revalidate()}>Try again</button>
-                </>
-              );
-            }}
-          >
-            <Route
-              path="child"
-              loader={() => {
-                if (shouldFail) {
-                  shouldFail = false;
-                  throw new Error("Broken");
-                } else {
-                  return "Fixed";
-                }
-              }}
-              Component={() => <p>{("Child:" + useLoaderData()) as string}</p>}
-            />
-          </Route>
-        )
-      );
-
-      let { container } = render(
-        <div>
-          <RouterProvider router={router} />
-        </div>
-      );
-
-      fireEvent.click(screen.getByText("/child"));
-      await waitFor(() => screen.getByText("Error:Broken"));
-      expect(getHtml(container)).toMatch("Error:Broken");
-      expect(router.state.errors).not.toBe(null);
-
-      fireEvent.click(screen.getByText("Try again"));
-      await waitFor(() => {
-        expect(queryByText(container, "Child:Fixed")).toBeInTheDocument();
-      });
-      expect(getHtml(container)).toMatch("Child:Fixed");
-      expect(router.state.errors).toBe(null);
     });
   });
 
@@ -3259,6 +3089,34 @@ describe("createMemoryRouter", () => {
       `);
     });
 
+    it("can render raw resolved to undefined promises with <Await>", async () => {
+      let dfd = createDeferred();
+
+      let { container } = render(
+        <React.Suspense fallback={<p>Loading...</p>}>
+          <Await resolve={dfd.promise}>{(data) => <p>{String(data)}</p>}</Await>
+        </React.Suspense>
+      );
+
+      expect(getHtml(container)).toMatchInlineSnapshot(`
+        "<div>
+          <p>
+            Loading...
+          </p>
+        </div>"
+      `);
+
+      dfd.resolve(undefined);
+      await waitFor(() => screen.getByText("undefined"));
+      expect(getHtml(container)).toMatchInlineSnapshot(`
+        "<div>
+          <p>
+            undefined
+          </p>
+        </div>"
+      `);
+    });
+
     it("can render raw resolved promises with <Await>", async () => {
       let dfd = createDeferred();
 
@@ -3337,76 +3195,110 @@ describe("createMemoryRouter", () => {
       `);
     });
   });
-});
 
-function createDeferred() {
-  let resolve: (val?: any) => Promise<void>;
-  let reject: (error?: Error) => Promise<void>;
-  let promise = new Promise((res, rej) => {
-    resolve = async (val: any) => {
-      res(val);
-      try {
-        await promise;
-      } catch (e) {}
-    };
-    reject = async (error?: Error) => {
-      rej(error);
-      try {
-        await promise;
-      } catch (e) {}
-    };
-  });
-  return {
-    promise,
-    //@ts-ignore
-    resolve,
-    //@ts-ignore
-    reject,
-  };
-}
+  describe("router dataStrategy", () => {
+    it("executes route loaders on navigation", async () => {
+      let barDefer = createDeferred();
+      let router = createMemoryRouter(
+        createRoutesFromElements(
+          <Route path="/" element={<Layout />}>
+            <Route path="foo" element={<Foo />} />
+            <Route
+              path="bar"
+              loader={() => barDefer.promise}
+              element={<Bar />}
+            />
+          </Route>
+        ),
+        { initialEntries: ["/foo"], dataStrategy: urlDataStrategy }
+      );
+      let { container } = render(<RouterProvider router={router} />);
 
-function getHtml(container: HTMLElement) {
-  return prettyDOM(container, undefined, {
-    highlight: false,
-  });
-}
-
-function MemoryNavigate({
-  to,
-  formMethod,
-  formData,
-  children,
-}: {
-  to: string;
-  formMethod?: FormMethod;
-  formData?: FormData;
-  children: React.ReactNode;
-}) {
-  let dataRouterContext = React.useContext(DataRouterContext);
-
-  let onClickHandler = React.useCallback(
-    async (event: React.MouseEvent) => {
-      event.preventDefault();
-      if (formMethod && formData) {
-        dataRouterContext?.router.navigate(to, { formMethod, formData });
-      } else {
-        dataRouterContext?.router.navigate(to);
+      function Layout() {
+        let navigation = useNavigation();
+        return (
+          <div>
+            <MemoryNavigate to="/bar">Link to Bar</MemoryNavigate>
+            <p>{navigation.state}</p>
+            <Outlet />
+          </div>
+        );
       }
-    },
-    [dataRouterContext, to, formMethod, formData]
-  );
 
-  // Only prepend the basename to the rendered href, send the non-prefixed `to`
-  // value into the router since it will prepend the basename
-  let basename = dataRouterContext?.basename;
-  let href = to;
-  if (basename && basename !== "/") {
-    href = to === "/" ? basename : joinPaths([basename, to]);
-  }
+      function Foo() {
+        return <h1>Foo</h1>;
+      }
+      function Bar() {
+        let data = useLoaderData() as URLSearchParams;
+        return <h1>{data?.get("message")}</h1>;
+      }
 
-  return formData ? (
-    <form onClick={onClickHandler} children={children} />
-  ) : (
-    <a href={href} onClick={onClickHandler} children={children} />
-  );
-}
+      expect(getHtml(container)).toMatchInlineSnapshot(`
+        "<div>
+          <div>
+            <a
+              href="/bar"
+            >
+              Link to Bar
+            </a>
+            <p>
+              idle
+            </p>
+            <h1>
+              Foo
+            </h1>
+          </div>
+        </div>"
+      `);
+
+      fireEvent.click(screen.getByText("Link to Bar"));
+      expect(getHtml(container)).toMatchInlineSnapshot(`
+        "<div>
+          <div>
+            <a
+              href="/bar"
+            >
+              Link to Bar
+            </a>
+            <p>
+              loading
+            </p>
+            <h1>
+              Foo
+            </h1>
+          </div>
+        </div>"
+      `);
+
+      // barDefer.resolve({ message: "Bar Loader" });
+      barDefer.resolve(
+        new Response(
+          new URLSearchParams([["message", "Bar Loader"]]).toString(),
+          {
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+          }
+        )
+      );
+      await waitFor(() => screen.getByText("idle"));
+      expect(getHtml(container)).toMatchInlineSnapshot(`
+        "<div>
+          <div>
+            <a
+              href="/bar"
+            >
+              Link to Bar
+            </a>
+            <p>
+              idle
+            </p>
+            <h1>
+              Bar Loader
+            </h1>
+          </div>
+        </div>"
+      `);
+    });
+  });
+});

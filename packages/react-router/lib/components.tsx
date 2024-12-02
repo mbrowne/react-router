@@ -1,62 +1,67 @@
-import * as React from "react";
 import type {
-  TrackedPromise,
   InitialEntry,
+  LazyRouteFunction,
   Location,
   MemoryHistory,
-  Router as RemixRouter,
-  To,
-  LazyRouteFunction,
   RelativeRoutingType,
+  Router as RemixRouter,
   RouterState,
+  RouterSubscriber,
+  To,
+  TrackedPromise,
 } from "@remix-run/router";
 import {
-  Action as NavigationType,
   AbortedDeferredError,
+  Action as NavigationType,
   createMemoryHistory,
+  UNSAFE_getResolveToMatches as getResolveToMatches,
   UNSAFE_invariant as invariant,
   parsePath,
   resolveTo,
   stripBasename,
   UNSAFE_warning as warning,
-  UNSAFE_getPathContributingMatches as getPathContributingMatches,
 } from "@remix-run/router";
+import * as React from "react";
 
 import type {
   DataRouteObject,
   IndexRouteObject,
-  RouteMatch,
-  RouteObject,
   Navigator,
   NonIndexRouteObject,
+  RouteMatch,
+  RouteObject,
 } from "./context";
 import {
-  LocationContext,
-  NavigationContext,
+  AwaitContext,
   DataRouterContext,
   DataRouterStateContext,
-  AwaitContext,
+  LocationContext,
+  NavigationContext,
   RouteContext,
 } from "./context";
 import {
+  _renderMatches,
   useAsyncValue,
   useInRouterContext,
+  useLocation,
   useNavigate,
   useOutlet,
   useRoutes,
-  _renderMatches,
   useRoutesImpl,
-  useLocation,
 } from "./hooks";
+import { logV6DeprecationWarnings } from "./deprecations";
 
 export interface FutureConfig {
+  v7_relativeSplatPath: boolean;
   v7_startTransition: boolean;
 }
 
 export interface RouterProviderProps {
   fallbackElement?: React.ReactNode;
   router: RemixRouter;
-  future?: FutureConfig;
+  // Only accept future flags relevant to rendering behavior
+  // routing flags should be accessed via router.future
+  future?: Partial<Pick<FutureConfig, "v7_startTransition">>;
 }
 
 /**
@@ -91,19 +96,33 @@ export function RouterProvider({
   router,
   future,
 }: RouterProviderProps): React.ReactElement {
-  // Need to use a layout effect here so we are subscribed early enough to
-  // pick up on any render-driven redirects/navigations (useEffect/<Navigate>)
   let [state, setStateImpl] = React.useState(router.state);
   let { v7_startTransition } = future || {};
-  let setState = React.useCallback(
+
+  let setState = React.useCallback<RouterSubscriber>(
     (newState: RouterState) => {
-      v7_startTransition && startTransitionImpl
-        ? startTransitionImpl(() => setStateImpl(newState))
-        : setStateImpl(newState);
+      if (v7_startTransition && startTransitionImpl) {
+        startTransitionImpl(() => setStateImpl(newState));
+      } else {
+        setStateImpl(newState);
+      }
     },
     [setStateImpl, v7_startTransition]
   );
+
+  // Need to use a layout effect here so we are subscribed early enough to
+  // pick up on any render-driven redirects/navigations (useEffect/<Navigate>)
   React.useLayoutEffect(() => router.subscribe(setState), [router, setState]);
+
+  React.useEffect(() => {
+    warning(
+      fallbackElement == null || !router.future.v7_partialHydration,
+      "`<RouterProvider fallbackElement>` is deprecated when using " +
+        "`v7_partialHydration`, use a `HydrateFallback` component instead"
+    );
+    // Only log this once on initial mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   let navigator = React.useMemo((): Navigator => {
     return {
@@ -136,6 +155,11 @@ export function RouterProvider({
     [router, navigator, basename]
   );
 
+  React.useEffect(
+    () => logV6DeprecationWarnings(future, router.future),
+    [router, future]
+  );
+
   // The fragment and {null} here are important!  We need them to keep React 18's
   // useId happy when we are server-rendering since we may have a <script> here
   // containing the hydrated server-side staticContext (from StaticRouterProvider).
@@ -151,9 +175,16 @@ export function RouterProvider({
             location={state.location}
             navigationType={state.historyAction}
             navigator={navigator}
+            future={{
+              v7_relativeSplatPath: router.future.v7_relativeSplatPath,
+            }}
           >
-            {state.initialized ? (
-              <DataRoutes routes={router.routes} state={state} />
+            {state.initialized || router.future.v7_partialHydration ? (
+              <DataRoutes
+                routes={router.routes}
+                future={router.future}
+                state={state}
+              />
             ) : (
               fallbackElement
             )}
@@ -167,12 +198,14 @@ export function RouterProvider({
 
 function DataRoutes({
   routes,
+  future,
   state,
 }: {
   routes: DataRouteObject[];
+  future: RemixRouter["future"];
   state: RouterState;
 }): React.ReactElement | null {
-  return useRoutesImpl(routes, undefined, state);
+  return useRoutesImpl(routes, undefined, state, future);
 }
 
 export interface MemoryRouterProps {
@@ -180,13 +213,13 @@ export interface MemoryRouterProps {
   children?: React.ReactNode;
   initialEntries?: InitialEntry[];
   initialIndex?: number;
-  future?: FutureConfig;
+  future?: Partial<FutureConfig>;
 }
 
 /**
- * A <Router> that stores all entries in memory.
+ * A `<Router>` that stores all entries in memory.
  *
- * @see https://reactrouter.com/router-components/memory-router
+ * @see https://reactrouter.com/v6/router-components/memory-router
  */
 export function MemoryRouter({
   basename,
@@ -221,6 +254,8 @@ export function MemoryRouter({
 
   React.useLayoutEffect(() => history.listen(setState), [history, setState]);
 
+  React.useEffect(() => logV6DeprecationWarnings(future), [future]);
+
   return (
     <Router
       basename={basename}
@@ -228,6 +263,7 @@ export function MemoryRouter({
       location={state.location}
       navigationType={state.action}
       navigator={history}
+      future={future}
     />
   );
 }
@@ -246,7 +282,7 @@ export interface NavigateProps {
  * able to use hooks. In functional components, we recommend you use the
  * `useNavigate` hook instead.
  *
- * @see https://reactrouter.com/components/navigate
+ * @see https://reactrouter.com/v6/components/navigate
  */
 export function Navigate({
   to,
@@ -261,8 +297,10 @@ export function Navigate({
     `<Navigate> may be used only in the context of a <Router> component.`
   );
 
+  let { future, static: isStatic } = React.useContext(NavigationContext);
+
   warning(
-    !React.useContext(NavigationContext).static,
+    !isStatic,
     `<Navigate> must not be used on the initial render in a <StaticRouter>. ` +
       `This is a no-op, but you should modify your code so the <Navigate> is ` +
       `only ever rendered in response to some user interaction or state change.`
@@ -276,7 +314,7 @@ export function Navigate({
   // StrictMode they navigate to the same place
   let path = resolveTo(
     to,
-    getPathContributingMatches(matches).map((match) => match.pathnameBase),
+    getResolveToMatches(matches, future.v7_relativeSplatPath),
     locationPathname,
     relative === "path"
   );
@@ -297,7 +335,7 @@ export interface OutletProps {
 /**
  * Renders the child route's element, if there is one.
  *
- * @see https://reactrouter.com/components/outlet
+ * @see https://reactrouter.com/v6/components/outlet
  */
 export function Outlet(props: OutletProps): React.ReactElement | null {
   return useOutlet(props.context);
@@ -316,8 +354,10 @@ export interface PathRouteProps {
   index?: false;
   children?: React.ReactNode;
   element?: React.ReactNode | null;
+  hydrateFallbackElement?: React.ReactNode | null;
   errorElement?: React.ReactNode | null;
   Component?: React.ComponentType | null;
+  HydrateFallback?: React.ComponentType | null;
   ErrorBoundary?: React.ComponentType | null;
 }
 
@@ -336,8 +376,10 @@ export interface IndexRouteProps {
   index: true;
   children?: undefined;
   element?: React.ReactNode | null;
+  hydrateFallbackElement?: React.ReactNode | null;
   errorElement?: React.ReactNode | null;
   Component?: React.ComponentType | null;
+  HydrateFallback?: React.ComponentType | null;
   ErrorBoundary?: React.ComponentType | null;
 }
 
@@ -346,7 +388,7 @@ export type RouteProps = PathRouteProps | LayoutRouteProps | IndexRouteProps;
 /**
  * Declares an element that should be rendered at a certain URL path.
  *
- * @see https://reactrouter.com/components/route
+ * @see https://reactrouter.com/v6/components/route
  */
 export function Route(_props: RouteProps): React.ReactElement | null {
   invariant(
@@ -363,16 +405,17 @@ export interface RouterProps {
   navigationType?: NavigationType;
   navigator: Navigator;
   static?: boolean;
+  future?: Partial<Pick<FutureConfig, "v7_relativeSplatPath">>;
 }
 
 /**
  * Provides location context for the rest of the app.
  *
- * Note: You usually won't render a <Router> directly. Instead, you'll render a
- * router that is more specific to your environment such as a <BrowserRouter>
- * in web browsers or a <StaticRouter> for server rendering.
+ * Note: You usually won't render a `<Router>` directly. Instead, you'll render a
+ * router that is more specific to your environment such as a `<BrowserRouter>`
+ * in web browsers or a `<StaticRouter>` for server rendering.
  *
- * @see https://reactrouter.com/router-components/router
+ * @see https://reactrouter.com/v6/router-components/router
  */
 export function Router({
   basename: basenameProp = "/",
@@ -381,6 +424,7 @@ export function Router({
   navigationType = NavigationType.Pop,
   navigator,
   static: staticProp = false,
+  future,
 }: RouterProps): React.ReactElement | null {
   invariant(
     !useInRouterContext(),
@@ -392,8 +436,16 @@ export function Router({
   // the enforcement of trailing slashes throughout the app
   let basename = basenameProp.replace(/^\/*/, "/");
   let navigationContext = React.useMemo(
-    () => ({ basename, navigator, static: staticProp }),
-    [basename, navigator, staticProp]
+    () => ({
+      basename,
+      navigator,
+      static: staticProp,
+      future: {
+        v7_relativeSplatPath: false,
+        ...future,
+      },
+    }),
+    [basename, future, navigator, staticProp]
   );
 
   if (typeof locationProp === "string") {
@@ -451,10 +503,10 @@ export interface RoutesProps {
 }
 
 /**
- * A container for a nested tree of <Route> elements that renders the branch
+ * A container for a nested tree of `<Route>` elements that renders the branch
  * that best matches the current location.
  *
- * @see https://reactrouter.com/components/routes
+ * @see https://reactrouter.com/v6/components/routes
  */
 export function Routes({
   children,
@@ -546,9 +598,9 @@ class AwaitErrorBoundary extends React.Component<
       // Already tracked promise - check contents
       promise = resolve;
       status =
-        promise._error !== undefined
+        "_error" in promise
           ? AwaitRenderStatus.error
-          : promise._data !== undefined
+          : "_data" in promise
           ? AwaitRenderStatus.success
           : AwaitRenderStatus.pending;
     } else {
@@ -593,7 +645,7 @@ class AwaitErrorBoundary extends React.Component<
 
 /**
  * @private
- * Indirection to leverage useAsyncValue for a render-prop API on <Await>
+ * Indirection to leverage useAsyncValue for a render-prop API on `<Await>`
  */
 function ResolveAwait({
   children,
@@ -614,7 +666,7 @@ function ResolveAwait({
  * either a `<Route>` element or an array of them. Used internally by
  * `<Routes>` to create a route config from its children.
  *
- * @see https://reactrouter.com/utils/create-routes-from-children
+ * @see https://reactrouter.com/v6/utils/create-routes-from-children
  */
 export function createRoutesFromChildren(
   children: React.ReactNode,

@@ -12,9 +12,14 @@ import type {
   Router as RemixRouter,
   RevalidationState,
   To,
+  UIMatch,
 } from "@remix-run/router";
 import {
+  IDLE_BLOCKER,
   Action as NavigationType,
+  UNSAFE_convertRouteMatchToUiMatch as convertRouteMatchToUiMatch,
+  UNSAFE_decodePath as decodePath,
+  UNSAFE_getResolveToMatches as getResolveToMatches,
   UNSAFE_invariant as invariant,
   isRouteErrorResponse,
   joinPaths,
@@ -23,33 +28,31 @@ import {
   parsePath,
   resolveTo,
   stripBasename,
-  IDLE_BLOCKER,
-  UNSAFE_getPathContributingMatches as getPathContributingMatches,
   UNSAFE_warning as warning,
 } from "@remix-run/router";
 
 import type {
+  DataRouteMatch,
   NavigateOptions,
   RouteContextObject,
   RouteMatch,
   RouteObject,
-  DataRouteMatch,
 } from "./context";
 import {
+  AwaitContext,
   DataRouterContext,
   DataRouterStateContext,
   LocationContext,
   NavigationContext,
   RouteContext,
   RouteErrorContext,
-  AwaitContext,
 } from "./context";
 
 /**
  * Returns the full href for the given "to" value. This is useful for building
  * custom links that are also accessible and preserve right-click behavior.
  *
- * @see https://reactrouter.com/hooks/use-href
+ * @see https://reactrouter.com/v6/hooks/use-href
  */
 export function useHref(
   to: To,
@@ -80,9 +83,9 @@ export function useHref(
 }
 
 /**
- * Returns true if this component is a descendant of a <Router>.
+ * Returns true if this component is a descendant of a `<Router>`.
  *
- * @see https://reactrouter.com/hooks/use-in-router-context
+ * @see https://reactrouter.com/v6/hooks/use-in-router-context
  */
 export function useInRouterContext(): boolean {
   return React.useContext(LocationContext) != null;
@@ -96,7 +99,7 @@ export function useInRouterContext(): boolean {
  * "routing" in your app, and we'd like to know what your use case is. We may
  * be able to provide something higher-level to better suit your needs.
  *
- * @see https://reactrouter.com/hooks/use-location
+ * @see https://reactrouter.com/v6/hooks/use-location
  */
 export function useLocation(): Location {
   invariant(
@@ -113,7 +116,7 @@ export function useLocation(): Location {
  * Returns the current navigation action which describes how the router came to
  * the current location, either by a pop, push, or replace on the history stack.
  *
- * @see https://reactrouter.com/hooks/use-navigation-type
+ * @see https://reactrouter.com/v6/hooks/use-navigation-type
  */
 export function useNavigationType(): NavigationType {
   return React.useContext(LocationContext).navigationType;
@@ -122,9 +125,9 @@ export function useNavigationType(): NavigationType {
 /**
  * Returns a PathMatch object if the given pattern matches the current URL.
  * This is useful for components that need to know "active" state, e.g.
- * <NavLink>.
+ * `<NavLink>`.
  *
- * @see https://reactrouter.com/hooks/use-match
+ * @see https://reactrouter.com/v6/hooks/use-match
  */
 export function useMatch<
   ParamKey extends ParamParseKey<Path>,
@@ -139,7 +142,7 @@ export function useMatch<
 
   let { pathname } = useLocation();
   return React.useMemo(
-    () => matchPath<ParamKey, Path>(pattern, pathname),
+    () => matchPath<ParamKey, Path>(pattern, decodePath(pathname)),
     [pathname, pattern]
   );
 }
@@ -170,10 +173,10 @@ function useIsomorphicLayoutEffect(
 }
 
 /**
- * Returns an imperative method for changing the location. Used by <Link>s, but
+ * Returns an imperative method for changing the location. Used by `<Link>`s, but
  * may also be used by other elements to change the location.
  *
- * @see https://reactrouter.com/hooks/use-navigate
+ * @see https://reactrouter.com/v6/hooks/use-navigate
  */
 export function useNavigate(): NavigateFunction {
   let { isDataRoute } = React.useContext(RouteContext);
@@ -191,12 +194,12 @@ function useNavigateUnstable(): NavigateFunction {
   );
 
   let dataRouterContext = React.useContext(DataRouterContext);
-  let { basename, navigator } = React.useContext(NavigationContext);
+  let { basename, future, navigator } = React.useContext(NavigationContext);
   let { matches } = React.useContext(RouteContext);
   let { pathname: locationPathname } = useLocation();
 
   let routePathnamesJson = JSON.stringify(
-    getPathContributingMatches(matches).map((match) => match.pathnameBase)
+    getResolveToMatches(matches, future.v7_relativeSplatPath)
   );
 
   let activeRef = React.useRef(false);
@@ -260,7 +263,7 @@ const OutletContext = React.createContext<unknown>(null);
 /**
  * Returns the context (if provided) for the child route at this level of the route
  * hierarchy.
- * @see https://reactrouter.com/hooks/use-outlet-context
+ * @see https://reactrouter.com/v6/hooks/use-outlet-context
  */
 export function useOutletContext<Context = unknown>(): Context {
   return React.useContext(OutletContext) as Context;
@@ -268,9 +271,9 @@ export function useOutletContext<Context = unknown>(): Context {
 
 /**
  * Returns the element for the child route at this level of the route
- * hierarchy. Used internally by <Outlet> to render child routes.
+ * hierarchy. Used internally by `<Outlet>` to render child routes.
  *
- * @see https://reactrouter.com/hooks/use-outlet
+ * @see https://reactrouter.com/v6/hooks/use-outlet
  */
 export function useOutlet(context?: unknown): React.ReactElement | null {
   let outlet = React.useContext(RouteContext).outlet;
@@ -286,7 +289,7 @@ export function useOutlet(context?: unknown): React.ReactElement | null {
  * Returns an object of key/value pairs of the dynamic params from the current
  * URL that were matched by the route path.
  *
- * @see https://reactrouter.com/hooks/use-params
+ * @see https://reactrouter.com/v6/hooks/use-params
  */
 export function useParams<
   ParamsOrKey extends string | Record<string, string | undefined> = string
@@ -301,17 +304,17 @@ export function useParams<
 /**
  * Resolves the pathname of the given `to` value against the current location.
  *
- * @see https://reactrouter.com/hooks/use-resolved-path
+ * @see https://reactrouter.com/v6/hooks/use-resolved-path
  */
 export function useResolvedPath(
   to: To,
   { relative }: { relative?: RelativeRoutingType } = {}
 ): Path {
+  let { future } = React.useContext(NavigationContext);
   let { matches } = React.useContext(RouteContext);
   let { pathname: locationPathname } = useLocation();
-
   let routePathnamesJson = JSON.stringify(
-    getPathContributingMatches(matches).map((match) => match.pathnameBase)
+    getResolveToMatches(matches, future.v7_relativeSplatPath)
   );
 
   return React.useMemo(
@@ -329,10 +332,10 @@ export function useResolvedPath(
 /**
  * Returns the element of the route that matched the current location, prepared
  * with the correct context to render the remainder of the route tree. Route
- * elements in the tree must render an <Outlet> to render their child route's
+ * elements in the tree must render an `<Outlet>` to render their child route's
  * element.
  *
- * @see https://reactrouter.com/hooks/use-routes
+ * @see https://reactrouter.com/v6/hooks/use-routes
  */
 export function useRoutes(
   routes: RouteObject[],
@@ -345,7 +348,8 @@ export function useRoutes(
 export function useRoutesImpl(
   routes: RouteObject[],
   locationArg?: Partial<Location> | string,
-  dataRouterState?: RemixRouter["state"]
+  dataRouterState?: RemixRouter["state"],
+  future?: RemixRouter["future"]
 ): React.ReactElement | null {
   invariant(
     useInRouterContext(),
@@ -419,10 +423,27 @@ export function useRoutesImpl(
   }
 
   let pathname = location.pathname || "/";
-  let remainingPathname =
-    parentPathnameBase === "/"
-      ? pathname
-      : pathname.slice(parentPathnameBase.length) || "/";
+
+  let remainingPathname = pathname;
+  if (parentPathnameBase !== "/") {
+    // Determine the remaining pathname by removing the # of URL segments the
+    // parentPathnameBase has, instead of removing based on character count.
+    // This is because we can't guarantee that incoming/outgoing encodings/
+    // decodings will match exactly.
+    // We decode paths before matching on a per-segment basis with
+    // decodeURIComponent(), but we re-encode pathnames via `new URL()` so they
+    // match what `window.location.pathname` would reflect.  Those don't 100%
+    // align when it comes to encoded URI characters such as % and &.
+    //
+    // So we may end up with:
+    //   pathname:           "/descendant/a%25b/match"
+    //   parentPathnameBase: "/descendant/a%b"
+    //
+    // And the direct substring removal approach won't work :/
+    let parentSegments = parentPathnameBase.replace(/^\//, "").split("/");
+    let segments = pathname.replace(/^\//, "").split("/");
+    remainingPathname = "/" + segments.slice(parentSegments.length).join("/");
+  }
 
   let matches = matchRoutes(routes, { pathname: remainingPathname });
 
@@ -435,7 +456,8 @@ export function useRoutesImpl(
     warning(
       matches == null ||
         matches[matches.length - 1].route.element !== undefined ||
-        matches[matches.length - 1].route.Component !== undefined,
+        matches[matches.length - 1].route.Component !== undefined ||
+        matches[matches.length - 1].route.lazy !== undefined,
       `Matched leaf route at location "${location.pathname}${location.search}${location.hash}" ` +
         `does not have an element or Component. This means it will render an <Outlet /> with a ` +
         `null value by default resulting in an "empty" page.`
@@ -467,7 +489,8 @@ export function useRoutesImpl(
         })
       ),
     parentMatches,
-    dataRouterState
+    dataRouterState,
+    future
   );
 
   // When a user passes in a `locationArg`, the associated routes need to
@@ -598,7 +621,7 @@ export class RenderErrorBoundary extends React.Component<
     // this because the error provided from the app state may be cleared without
     // the location changing.
     return {
-      error: props.error || state.error,
+      error: props.error !== undefined ? props.error : state.error,
       location: state.location,
       revalidation: props.revalidation || state.revalidation,
     };
@@ -613,7 +636,7 @@ export class RenderErrorBoundary extends React.Component<
   }
 
   render() {
-    return this.state.error ? (
+    return this.state.error !== undefined ? (
       <RouteContext.Provider value={this.props.routeContext}>
         <RouteErrorContext.Provider
           value={this.state.error}
@@ -656,12 +679,30 @@ function RenderedRoute({ routeContext, match, children }: RenderedRouteProps) {
 export function _renderMatches(
   matches: RouteMatch[] | null,
   parentMatches: RouteMatch[] = [],
-  dataRouterState: RemixRouter["state"] | null = null
+  dataRouterState: RemixRouter["state"] | null = null,
+  future: RemixRouter["future"] | null = null
 ): React.ReactElement | null {
   if (matches == null) {
-    if (dataRouterState?.errors) {
+    if (!dataRouterState) {
+      return null;
+    }
+
+    if (dataRouterState.errors) {
       // Don't bail if we have data router errors so we can render them in the
       // boundary.  Use the pre-matched (or shimmed) matches
+      matches = dataRouterState.matches as DataRouteMatch[];
+    } else if (
+      future?.v7_partialHydration &&
+      parentMatches.length === 0 &&
+      !dataRouterState.initialized &&
+      dataRouterState.matches.length > 0
+    ) {
+      // Don't bail if we're initializing with partial hydration and we have
+      // router matches.  That means we're actively running `patchRoutesOnNavigation`
+      // so we should render down the partial matches to the appropriate
+      // `HydrateFallback`.  We only do this if `parentMatches` is empty so it
+      // only impacts the root matches for `RouterProvider` and no descendant
+      // `<Routes>`
       matches = dataRouterState.matches as DataRouteMatch[];
     } else {
       return null;
@@ -674,7 +715,7 @@ export function _renderMatches(
   let errors = dataRouterState?.errors;
   if (errors != null) {
     let errorIndex = renderedMatches.findIndex(
-      (m) => m.route.id && errors?.[m.route.id]
+      (m) => m.route.id && errors?.[m.route.id] !== undefined
     );
     invariant(
       errorIndex >= 0,
@@ -688,18 +729,73 @@ export function _renderMatches(
     );
   }
 
-  return renderedMatches.reduceRight((outlet, match, index) => {
-    let error = match.route.id ? errors?.[match.route.id] : null;
-    // Only data routers handle errors
-    let errorElement: React.ReactNode | null = null;
-    if (dataRouterState) {
-      errorElement = match.route.errorElement || defaultErrorElement;
+  // If we're in a partial hydration mode, detect if we need to render down to
+  // a given HydrateFallback while we load the rest of the hydration data
+  let renderFallback = false;
+  let fallbackIndex = -1;
+  if (dataRouterState && future && future.v7_partialHydration) {
+    for (let i = 0; i < renderedMatches.length; i++) {
+      let match = renderedMatches[i];
+      // Track the deepest fallback up until the first route without data
+      if (match.route.HydrateFallback || match.route.hydrateFallbackElement) {
+        fallbackIndex = i;
+      }
+
+      if (match.route.id) {
+        let { loaderData, errors } = dataRouterState;
+        let needsToRunLoader =
+          match.route.loader &&
+          loaderData[match.route.id] === undefined &&
+          (!errors || errors[match.route.id] === undefined);
+        if (match.route.lazy || needsToRunLoader) {
+          // We found the first route that's not ready to render (waiting on
+          // lazy, or has a loader that hasn't run yet).  Flag that we need to
+          // render a fallback and render up until the appropriate fallback
+          renderFallback = true;
+          if (fallbackIndex >= 0) {
+            renderedMatches = renderedMatches.slice(0, fallbackIndex + 1);
+          } else {
+            renderedMatches = [renderedMatches[0]];
+          }
+          break;
+        }
+      }
     }
+  }
+
+  return renderedMatches.reduceRight((outlet, match, index) => {
+    // Only data routers handle errors/fallbacks
+    let error: any;
+    let shouldRenderHydrateFallback = false;
+    let errorElement: React.ReactNode | null = null;
+    let hydrateFallbackElement: React.ReactNode | null = null;
+    if (dataRouterState) {
+      error = errors && match.route.id ? errors[match.route.id] : undefined;
+      errorElement = match.route.errorElement || defaultErrorElement;
+
+      if (renderFallback) {
+        if (fallbackIndex < 0 && index === 0) {
+          warningOnce(
+            "route-fallback",
+            false,
+            "No `HydrateFallback` element provided to render during initial hydration"
+          );
+          shouldRenderHydrateFallback = true;
+          hydrateFallbackElement = null;
+        } else if (fallbackIndex === index) {
+          shouldRenderHydrateFallback = true;
+          hydrateFallbackElement = match.route.hydrateFallbackElement || null;
+        }
+      }
+    }
+
     let matches = parentMatches.concat(renderedMatches.slice(0, index + 1));
     let getChildren = () => {
       let children: React.ReactNode;
       if (error) {
         children = errorElement;
+      } else if (shouldRenderHydrateFallback) {
+        children = hydrateFallbackElement;
       } else if (match.route.Component) {
         // Note: This is a de-optimized path since React won't re-use the
         // ReactElement since it's identity changes with each new
@@ -766,7 +862,7 @@ enum DataRouterStateHook {
 function getDataRouterConsoleError(
   hookName: DataRouterHook | DataRouterStateHook
 ) {
-  return `${hookName} must be used within a data router.  See https://reactrouter.com/routers/picking-a-router.`;
+  return `${hookName} must be used within a data router.  See https://reactrouter.com/v6/routers/picking-a-router.`;
 }
 
 function useDataRouterContext(hookName: DataRouterHook) {
@@ -821,35 +917,25 @@ export function useNavigation() {
 export function useRevalidator() {
   let dataRouterContext = useDataRouterContext(DataRouterHook.UseRevalidator);
   let state = useDataRouterState(DataRouterStateHook.UseRevalidator);
-  return {
-    revalidate: dataRouterContext.router.revalidate,
-    state: state.revalidation,
-  };
+  return React.useMemo(
+    () => ({
+      revalidate: dataRouterContext.router.revalidate,
+      state: state.revalidation,
+    }),
+    [dataRouterContext.router.revalidate, state.revalidation]
+  );
 }
 
 /**
  * Returns the active route matches, useful for accessing loaderData for
  * parent/child routes or the route "handle" property
  */
-export function useMatches() {
+export function useMatches(): UIMatch[] {
   let { matches, loaderData } = useDataRouterState(
     DataRouterStateHook.UseMatches
   );
   return React.useMemo(
-    () =>
-      matches.map((match) => {
-        let { pathname, params } = match;
-        // Note: This structure matches that created by createUseMatchesMatch
-        // in the @remix-run/router , so if you change this please also change
-        // that :)  Eventually we'll DRY this up
-        return {
-          id: match.route.id,
-          pathname,
-          params,
-          data: loaderData[match.route.id] as unknown,
-          handle: match.route.handle as unknown,
-        };
-      }),
+    () => matches.map((m) => convertRouteMatchToUiMatch(m, loaderData)),
     [matches, loaderData]
   );
 }
@@ -883,11 +969,8 @@ export function useRouteLoaderData(routeId: string): unknown {
  */
 export function useActionData(): unknown {
   let state = useDataRouterState(DataRouterStateHook.UseActionData);
-
-  let route = React.useContext(RouteContext);
-  invariant(route, `useActionData must be used inside a RouteContext`);
-
-  return Object.values(state?.actionData || {})[0];
+  let routeId = useCurrentRouteId(DataRouterStateHook.UseLoaderData);
+  return state.actionData ? state.actionData[routeId] : undefined;
 }
 
 /**
@@ -902,7 +985,7 @@ export function useRouteError(): unknown {
 
   // If this was a render error, we put it in a RouteError context inside
   // of RenderErrorBoundary
-  if (error) {
+  if (error !== undefined) {
     return error;
   }
 
@@ -911,7 +994,7 @@ export function useRouteError(): unknown {
 }
 
 /**
- * Returns the happy-path data from the nearest ancestor <Await /> value
+ * Returns the happy-path data from the nearest ancestor `<Await />` value
  */
 export function useAsyncValue(): unknown {
   let value = React.useContext(AwaitContext);
@@ -919,7 +1002,7 @@ export function useAsyncValue(): unknown {
 }
 
 /**
- * Returns the error from the nearest ancestor <Await /> value
+ * Returns the error from the nearest ancestor `<Await />` value
  */
 export function useAsyncError(): unknown {
   let value = React.useContext(AwaitContext);

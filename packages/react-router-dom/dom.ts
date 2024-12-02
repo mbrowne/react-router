@@ -97,13 +97,18 @@ export function getSearchParamsForLocation(
   let searchParams = createSearchParams(locationSearch);
 
   if (defaultSearchParams) {
-    for (let key of defaultSearchParams.keys()) {
+    // Use `defaultSearchParams.forEach(...)` here instead of iterating of
+    // `defaultSearchParams.keys()` to work-around a bug in Firefox related to
+    // web extensions. Relevant Bugzilla tickets:
+    // https://bugzilla.mozilla.org/show_bug.cgi?id=1414602
+    // https://bugzilla.mozilla.org/show_bug.cgi?id=1023984
+    defaultSearchParams.forEach((_, key) => {
       if (!searchParams.has(key)) {
         defaultSearchParams.getAll(key).forEach((value) => {
           searchParams.append(key, value);
         });
       }
-    }
+    });
   }
 
   return searchParams;
@@ -145,7 +150,10 @@ function isFormDataSubmitterSupported() {
   return _formDataSupportsSubmitter;
 }
 
-export interface SubmitOptions {
+/**
+ * Submit options shared by both navigations and fetchers
+ */
+interface SharedSubmitOptions {
   /**
    * The HTTP method used to submit the form. Overrides `<form method>`.
    * Defaults to "GET".
@@ -165,6 +173,34 @@ export interface SubmitOptions {
   encType?: FormEncType;
 
   /**
+   * Determines whether the form action is relative to the route hierarchy or
+   * the pathname.  Use this if you want to opt out of navigating the route
+   * hierarchy and want to instead route based on /-delimited URL segments
+   */
+  relative?: RelativeRoutingType;
+
+  /**
+   * In browser-based environments, prevent resetting scroll after this
+   * navigation when using the <ScrollRestoration> component
+   */
+  preventScrollReset?: boolean;
+
+  /**
+   * Enable flushSync for this submission's state updates
+   */
+  flushSync?: boolean;
+}
+
+/**
+ * Submit options available to fetchers
+ */
+export interface FetcherSubmitOptions extends SharedSubmitOptions {}
+
+/**
+ * Submit options available to navigations
+ */
+export interface SubmitOptions extends FetcherSubmitOptions {
+  /**
    * Set `true` to replace the current entry in the browser's history stack
    * instead of creating a new one (i.e. stay on "the same page"). Defaults
    * to `false`.
@@ -177,17 +213,19 @@ export interface SubmitOptions {
   state?: any;
 
   /**
-   * Determines whether the form action is relative to the route hierarchy or
-   * the pathname.  Use this if you want to opt out of navigating the route
-   * hierarchy and want to instead route based on /-delimited URL segments
+   * Indicate a specific fetcherKey to use when using navigate=false
    */
-  relative?: RelativeRoutingType;
+  fetcherKey?: string;
 
   /**
-   * In browser-based environments, prevent resetting scroll after this
-   * navigation when using the <ScrollRestoration> component
+   * navigate=false will use a fetcher instead of a navigation
    */
-  preventScrollReset?: boolean;
+  navigate?: boolean;
+
+  /**
+   * Enable view transitions on this submission navigation
+   */
+  viewTransition?: boolean;
 }
 
 const supportedFormEncTypes: Set<FormEncType> = new Set([

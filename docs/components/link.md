@@ -17,12 +17,13 @@ interface LinkProps
     React.AnchorHTMLAttributes<HTMLAnchorElement>,
     "href"
   > {
-  replace?: boolean;
-  state?: any;
   to: To;
-  reloadDocument?: boolean;
   preventScrollReset?: boolean;
   relative?: "route" | "path";
+  reloadDocument?: boolean;
+  replace?: boolean;
+  state?: any;
+  viewTransition?: boolean;
 }
 
 type To = string | Partial<Path>;
@@ -62,9 +63,11 @@ A relative `<Link to>` value (that does not begin with `/`) resolves relative to
 
 <docs-info>`<Link to>` with a `..` behaves differently from a normal `<a href>` when the current URL ends with `/`. `<Link to>` ignores the trailing slash, and removes one URL segment for each `..`. But an `<a href>` value handles `..` differently when the current URL ends with `/` vs when it does not.</docs-info>
 
+<docs-info>Please see the [Splat Paths][relativesplatpath] section on the `useResolvedPath` docs for a note on the behavior of the `future.v7_relativeSplatPath` future flag for relative `<Link to>` behavior within splat routes</docs-info>
+
 ## `relative`
 
-By default, links are relative to the route hierarchy, so `..` will go up one `Route` level. Occasionally, you may find that you have matching URL patterns that do not make sense to be nested, and you'd prefer to use relative _path_ routing. You can opt into this behavior with `relative`:
+By default, links are relative to the route hierarchy (`relative="route"`), so `..` will go up one `Route` level from the current contextual route. Occasionally, you may find that you have matching URL patterns that do not make sense to be nested, and you'd prefer to use relative _path_ routing from the current contextual route path. You can opt into this behavior with `relative="path"`:
 
 ```jsx
 // Contact and EditContact do not share additional UI layout
@@ -78,13 +81,35 @@ By default, links are relative to the route hierarchy, so `..` will go up one `R
 
 function EditContact() {
   // Since Contact is not a parent of EditContact we need to go up one level
-  // in the path, instead of one level in the Route hierarchy
+  // in the current contextual route path, instead of one level in the Route
+  // hierarchy
   return (
     <Link to=".." relative="path">
       Cancel
     </Link>
   );
 }
+```
+
+Please note that `relative: "path"` only impacts the resolution of a relative path. It does not change the "starting" location for that relative path resolution. This resolution is always relative to the current location in the Route hierarchy (i.e., the route `Link` is rendered in).
+
+If you wish to use path-relative routing against the current URL instead of the route hierarchy, you can do that with the current [`location`][use-location] and the `URL` constructor (note the trailing slash behavior):
+
+```js
+// Assume the current URL is https://remix.run/docs/en/main/start/quickstart
+let location = useLocation();
+
+// Without trailing slashes
+new URL(".", window.origin + location.pathname);
+// 'https://remix.run/docs/en/main/start/'
+new URL("..", window.origin + location.pathname);
+// 'https://remix.run/docs/en/main/'
+
+// With trailing slashes:
+new URL(".", window.origin + location.pathname + "/");
+// 'https://remix.run/docs/en/main/start/quickstart/'
+new URL("..", window.origin + location.pathname + "/");
+// 'https://remix.run/docs/en/main/start/'
 ```
 
 ## `preventScrollReset`
@@ -146,8 +171,56 @@ let { state } = useLocation();
 
 The `reloadDocument` property can be used to skip client side routing and let the browser handle the transition normally (as if it were an `<a href>`).
 
+## `viewTransition`
+
+The `viewTransition` prop enables a [View Transition][view-transitions] for this navigation by wrapping the final state update in `document.startViewTransition()`:
+
+```jsx
+<Link to={to} viewTransition>
+  Click me
+</Link>
+```
+
+If you need to apply specific styles for this view transition, you will also need to leverage the [`useViewTransitionState()`][use-view-transition-state] hook (or check out the `transitioning` class and `isTransitioning` render prop in [NavLink][navlink]):
+
+```jsx
+function ImageLink(to) {
+  const isTransitioning = useViewTransitionState(to);
+  return (
+    <Link to={to} viewTransition>
+      <p
+        style={{
+          viewTransitionName: isTransitioning
+            ? "image-title"
+            : "",
+        }}
+      >
+        Image Number {idx}
+      </p>
+      <img
+        src={src}
+        alt={`Img ${idx}`}
+        style={{
+          viewTransitionName: isTransitioning
+            ? "image-expand"
+            : "",
+        }}
+      />
+    </Link>
+  );
+}
+```
+
+<docs-warning>`viewTransition` only works when using a data router, see [Picking a Router][picking-a-router]</docs-warning>
+
 [link-native]: ./link-native
 [scrollrestoration]: ./scroll-restoration
 [history-replace-state]: https://developer.mozilla.org/en-US/docs/Web/API/History/replaceState
 [history-push-state]: https://developer.mozilla.org/en-US/docs/Web/API/History/pushState
 [history-state]: https://developer.mozilla.org/en-US/docs/Web/API/History/state
+[use-view-transition-state]: ../hooks//use-view-transition-state
+[view-transitions]: https://developer.mozilla.org/en-US/docs/Web/API/View_Transitions_API
+[picking-a-router]: ../routers/picking-a-router
+[navlink]: ./nav-link
+[relativesplatpath]: ../hooks/use-resolved-path#splat-paths
+[use-location]: ../hooks/use-location

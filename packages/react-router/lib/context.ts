@@ -1,18 +1,18 @@
 import * as React from "react";
 import type {
-  AgnosticRouteMatch,
   AgnosticIndexRouteObject,
   AgnosticNonIndexRouteObject,
+  AgnosticRouteMatch,
   History,
+  LazyRouteFunction,
   Location,
+  Action as NavigationType,
   RelativeRoutingType,
   Router,
   StaticHandlerContext,
   To,
   TrackedPromise,
-  LazyRouteFunction,
 } from "@remix-run/router";
-import type { Action as NavigationType } from "@remix-run/router";
 
 // Create react-specific types from the agnostic types in @remix-run/router to
 // export from react-router
@@ -28,8 +28,10 @@ export interface IndexRouteObject {
   index: true;
   children?: undefined;
   element?: React.ReactNode | null;
+  hydrateFallbackElement?: React.ReactNode | null;
   errorElement?: React.ReactNode | null;
   Component?: React.ComponentType | null;
+  HydrateFallback?: React.ComponentType | null;
   ErrorBoundary?: React.ComponentType | null;
   lazy?: LazyRouteFunction<RouteObject>;
 }
@@ -46,8 +48,10 @@ export interface NonIndexRouteObject {
   index?: false;
   children?: RouteObject[];
   element?: React.ReactNode | null;
+  hydrateFallbackElement?: React.ReactNode | null;
   errorElement?: React.ReactNode | null;
   Component?: React.ComponentType | null;
+  HydrateFallback?: React.ComponentType | null;
   ErrorBoundary?: React.ComponentType | null;
   lazy?: LazyRouteFunction<RouteObject>;
 }
@@ -66,7 +70,10 @@ export interface RouteMatch<
 
 export interface DataRouteMatch extends RouteMatch<string, DataRouteObject> {}
 
-export interface DataRouterContextObject extends NavigationContextObject {
+export interface DataRouterContextObject
+  // Omit `future` since those can be pulled from the `router`
+  // `NavigationContext` needs future since it doesn't have a `router` in all cases
+  extends Omit<NavigationContextObject, "future"> {
   router: Router;
   staticContext?: StaticHandlerContext;
 }
@@ -94,13 +101,15 @@ export interface NavigateOptions {
   state?: any;
   preventScrollReset?: boolean;
   relative?: RelativeRoutingType;
+  flushSync?: boolean;
+  viewTransition?: boolean;
 }
 
 /**
  * A Navigator is a "location changer"; it's how you get to different locations.
  *
  * Every history instance conforms to the Navigator interface, but the
- * distinction is useful primarily when it comes to the low-level <Router> API
+ * distinction is useful primarily when it comes to the low-level `<Router>` API
  * where both the location and a navigator must be provided separately in order
  * to avoid "tearing" that may occur in a suspense-enabled app if the action
  * and/or location were to be read directly from the history instance.
@@ -118,6 +127,9 @@ interface NavigationContextObject {
   basename: string;
   navigator: Navigator;
   static: boolean;
+  future: {
+    v7_relativeSplatPath: boolean;
+  };
 }
 
 export const NavigationContext = React.createContext<NavigationContextObject>(
