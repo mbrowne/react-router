@@ -31,9 +31,12 @@
       "require": "./dist/main.js"
     },
     "./server": {
-      "import": "./server.mjs"
+      "types": "./server.d.ts",
+      "import": "./server.mjs",
+      "require": "./server.js"
     },
     "./server.mjs": {
+      "types": "./server.d.ts",
       "import": "./server.mjs"
     }
   },
