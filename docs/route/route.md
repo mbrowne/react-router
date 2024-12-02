@@ -62,7 +62,7 @@ const router = createBrowserRouter(
 
 Neither style is discouraged and behavior is identical. For the majority of this doc we will use the JSX style because that's what most people are accustomed to in the context of React Router.
 
-<docs-info>If you do not wish to specify a React element (i.e., `element={<MyComponent />}`) you may specify a `Component` instead (i.e., `Component={MyComponent}`) and React Router will call `createElement` for you internally.</docs-info>
+<docs-info>When using `RouterProvider`, if you do not wish to specify a React element (i.e., `element={<MyComponent />}`) you may specify a `Component` instead (i.e., `Component={MyComponent}`) and React Router will call `createElement` for you internally. You should only do this for `RouterProvider` applications though since using `Component` inside of `<Routes>` will de-optimize React's ability to reuse the created element across renders.</docs-info>
 
 ## Type declaration
 
@@ -296,17 +296,29 @@ The route action is called when a submission is sent to the route from a [Form][
 
 Please see the [action][action] documentation for more details.
 
-## `element`
+## `element`/`Component`
 
-The element to render when the route matches the URL.
+The React Element/Component to render when the route matches the URL.
+
+If you want to create the React Element, use `element`:
 
 ```tsx
 <Route path="/for-sale" element={<Properties />} />
 ```
 
-## `errorElement`
+Otherwise use `Component` and React Router will create the React Element for you:
 
-When a route throws an exception while rendering, in a `loader` or in an `action`, this element will render instead of the normal `element`.
+```tsx
+<Route path="/for-sale" Component={Properties} />
+```
+
+<docs-warning>You should only opt into the `Component` API for data routes via `RouterProvider`. Using this API on a `<Route>` inside `<Routes>` will de-optimize React's ability to reuse the created element across renders.</docs-warning>
+
+## `errorElement`/`ErrorBoundary`
+
+When a route throws an exception while rendering, in a `loader` or in an `action`, this React Element/Component will render instead of the normal `element`/`Component`.
+
+If you want to create the React Element on your own, use `errorElement`:
 
 ```tsx
 <Route
@@ -321,6 +333,20 @@ When a route throws an exception while rendering, in a `loader` or in an `action
   }
   // then this element will render
   errorElement={<ErrorBoundary />}
+/>
+```
+
+Otherwise use `ErrorBoundary` and React Router will create the React Element for you:
+
+```tsx
+<Route
+  path="/for-sale"
+  Component={Properties}
+  loader={() => loadProperties()}
+  action={async ({ request }) =>
+    createProperty(await request.formData())
+  }
+  ErrorBoundary={ErrorBoundary}
 />
 ```
 

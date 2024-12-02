@@ -57,7 +57,7 @@ But it's still sub optimal in most cases (especially if you're code-splitting ro
 React Router takes advantage of React 18's Suspense for data fetching using the [`defer` Response][defer response] utility and [`<Await />`][await] component / [`useAsyncValue`][useasyncvalue] hook. By using these APIs, you can solve both of these problems:
 
 1. Your data is no longer on a waterfall: document -> JavaScript -> Lazy Loaded Route & data (in parallel)
-2. Your can easily switch between rendering the fallback and waiting for the data
+2. Your code can easily switch between rendering the fallback and waiting for the data
 
 Let's take a dive into how to accomplish this.
 
@@ -206,6 +206,43 @@ This may feel counter-intuitive at first, but stay with us, we really thought th
 When you decide you'd like to try the trade-offs of `defer`, we don't want you to have to change or remove those optimizations because we want you to be able to easily switch between deferring some data and not deferring it. So, we ensure that your existing optimistic states work the same way. If we didn't do this, then you could experience what we call "Popcorn UI" where submissions of data trigger the fallback loading state instead of the optimistic UI you'd worked hard on.
 
 So just keep this in mind: **Deferred is 100% only about the initial load of a route and its params.**
+
+### Why don't Response objects returned by the loader work anymore?
+
+When you use `defer`, you're telling React Router to load the page immediately, without the deferred data. The page is already loaded before the `Response` object is returned so responses are not automatically processed in the same way as if you had done `return fetch(url)`.
+
+Therefore, you will need to handle your own `Response` processing and resolve your deferred Promise with data, not a `Response` instance.
+
+```jsx
+async function loader({ request, params }) {
+  return defer({
+    // Broken! Resolves with a Response
+    // broken: fetch(url),
+
+    // Fixed! Resolves with the response data
+    data: fetch(url).then((res) => res.json()),
+  });
+}
+```
+
+Or consider the scenario where our deferred data could return a redirect `Response`. You can detect the redirect and send the status code and location back as data, and then you could perform a client-side redirect in your component via `useEffect` and `useNavigate`.
+
+```jsx
+async function loader({ request, params }) {
+  let data = fetch(url).then((res) => {
+    if (res.status == 301) {
+      return {
+        isRedirect: true,
+        status: res.status,
+        location: res.headers.get("Location"),
+      };
+    }
+    return res.json();
+  });
+
+  return defer({ data });
+}
+```
 
 [link]: ../components/link
 [usefetcher]: ../hooks/use-fetcher

@@ -68,8 +68,8 @@ The `main.jsx` file is the entry point. Open it up and we'll put React Router on
 👉 **Create and render a [browser router][createbrowserrouter] in `main.jsx`**
 
 ```jsx lines=[3-6,9-14,18] filename=src/main.jsx
-import React from "react";
-import ReactDOM from "react-dom/client";
+import * as React from "react";
+import * as ReactDOM from "react-dom/client";
 import {
   createBrowserRouter,
   RouterProvider,
@@ -694,7 +694,7 @@ These params are most often used to find a record by ID. Let's try it out.
 
 👉 **Add a loader to the contact page and access data with `useLoaderData`**
 
-```jsx filename=src/routes/contact.jsx lines=[1,2,4-6,9]
+```jsx filename=src/routes/contact.jsx lines=[1,2,4-6,10]
 import { Form, useLoaderData } from "react-router-dom";
 import { getContact } from "../contacts";
 
@@ -1487,8 +1487,17 @@ You could certainly do this as a controlled component, but you'll end up with mo
 
 Notice how controlling the input requires three points of synchronization now instead of just one. The behavior is identical but the code is more complex.
 
-```jsx filename=src/routes/root.jsx lines=[1,6,9-11,25-28]
+```jsx filename=src/routes/root.jsx lines=[1,6,15,18-20,34-37]
 import { useEffect, useState } from "react";
+// existing code
+
+export async function loader({ request }) {
+  const url = new URL(request.url);
+  const q = url.searchParams.get("q") || "";
+  const contacts = await getContacts(q);
+  return { contacts, q };
+}
+
 // existing code
 
 export default function Root() {
@@ -1784,13 +1793,13 @@ Alright, we're ready to click the star next to the user's name!
 
 <img class="tutorial" loading="lazy" src="/_docs/tutorial/24.webp" />
 
-Check that out, both stars automatically update. Our new `<fetcher.Form method="post">` works almost exactly like a the `<Form>` we've been using: it calls the action and then all data is revalidated automatically--even your errors will be caught the same way.
+Check that out, both stars automatically update. Our new `<fetcher.Form method="post">` works almost exactly like the `<Form>` we've been using: it calls the action and then all data is revalidated automatically--even your errors will be caught the same way.
 
 There is one key difference though, it's not a navigation--the URL doesn't change, the history stack is unaffected.
 
 ## Optimistic UI
 
-You probably noticed the app felt kind of unresponsive when we clicked the the favorite button from the last section. Once again, we added some network latency because you're going to have it in the real world!
+You probably noticed the app felt kind of unresponsive when we clicked the favorite button from the last section. Once again, we added some network latency because you're going to have it in the real world!
 
 To give the user some feedback, we could put the star into a loading state with [`fetcher.state`][fetcherstate] (a lot like `navigation.state` from before), but we can do something even better this time. We can use a strategy called "optimistic UI"
 
@@ -1911,6 +1920,7 @@ And for our final trick, many folks prefer to configure their routes with JSX. Y
 import {
   createRoutesFromElements,
   createBrowserRouter,
+  Route,
 } from "react-router-dom";
 
 const router = createBrowserRouter(
